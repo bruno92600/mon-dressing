@@ -1,17 +1,14 @@
-import { SignIn } from "@clerk/nextjs";
+import { SignUp } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-export default async function HomePage() {
-  // On vérifie si l'utilisateur est déjà connecté
+export default async function InscriptionPage() {
   const { userId } = await auth();
 
-  // S'il a déjà sa session ouverte, on l'envoie direct dans son dressing !
   if (userId) {
     redirect("/dressing");
   }
 
-  // Sinon, on lui affiche l'accueil avec la connexion
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-[#FAFAFA] p-6">
       <div className="text-center mb-12">
@@ -23,9 +20,9 @@ export default async function HomePage() {
         </p>
       </div>
 
-      {/* Le module Clerk directement intégré dans TA page */}
+      {/* On utilise SignUp ici, et on lui dit que le bouton "Se connecter" renvoie vers l'accueil "/" */}
       <div className="shadow-2xl rounded-2xl overflow-hidden">
-        <SignIn routing="hash" signUpUrl="/inscription" />
+        <SignUp routing="hash" signInUrl="/" />
       </div>
     </main>
   );

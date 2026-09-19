@@ -1,0 +1,47 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. L'Utilisateur (Celui qui possède le dressing)
+model User {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String?
+  // --- NOUVELLES COLONNES POUR L'IA ---
+  gender           String?  @default("Non précisé")
+  age              Int?
+  stylePreferences String?
+  // ------------------------------------
+  createdAt        DateTime @default(now())
+  outfits          Outfit[]
+  items            Item[]   // La ligne manquante pour valider la relation !
+}
+
+// 2. Le Vêtement (L'article individuel pris en photo)
+model Item {
+  id        String   @id @default(cuid())
+  name      String   // ex: "Veste Structurée"
+  category  String   // ex: "Haut", "Bas", "Chaussures", "Maroquinerie"
+  color     String?
+  season    String?  // ex: "Hiver", "Été", "Toutes saisons"
+  imageUrl  String?  // Le lien vers la photo détourée
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  outfits   Outfit[] // Les tenues dans lesquelles ce vêtement est utilisé
+  createdAt DateTime @default(now())
+}
+
+// 3. La Tenue (Le look généré par l'IA)
+model Outfit {
+  id          String   @id @default(cuid())
+  styleNotes  String?  // Le paragraphe "Éditorial" rédigé par l'IA
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  items       Item[]   // Les vêtements qui composent ce look
+  createdAt   DateTime @default(now())
+}
