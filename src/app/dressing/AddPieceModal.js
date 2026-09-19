@@ -74,15 +74,16 @@ export default function AddPieceModal() {
               <div className="mb-2">
                 <CldUploadWidget
                   uploadPreset="dressing_preset"
+                  options={{ sources: ["local", "camera"] }}
                   onSuccess={(result) => handleUploadSuccess(result)}
                 >
                   {({ open }) => {
                     return (
                       <button
-                        type="button" /* <-- LA CORRECTION EST ICI */
+                        type="button"
                         onClick={(e) => {
-                          e.preventDefault(); // Empêche tout conflit avec le formulaire
-                          open(); // Ouvre Cloudinary
+                          e.preventDefault();
+                          open();
                         }}
                         className={`w-full border-2 border-dashed p-4 text-center transition-colors cursor-pointer flex flex-col items-center justify-center min-h-[160px] relative ${
                           isAnalyzing
@@ -108,7 +109,7 @@ export default function AddPieceModal() {
                           </>
                         ) : (
                           <span className="text-sm text-neutral-400">
-                            📸 Cliquez pour uploader une photo
+                            📸 Cliquez pour ajouter ou prendre une photo
                           </span>
                         )}
                       </button>
