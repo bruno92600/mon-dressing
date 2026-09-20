@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { generateAILooks, saveGeneratedOutfit } from "../actions";
-import DiamondLoader from "@/components/DiamondLoader"; // NOUVEAU : Le loader chic
-import { toast } from "sonner"; // NOUVEAU : Les notifications
+import DiamondLoader from "@/components/DiamondLoader";
+import { toast } from "sonner";
 
-export default function AILookButton({ item, allItems, isMulti = false }) {
+export default function AILookButton({
+  item,
+  allItems,
+  isMulti = false,
+  isCarteBlanche = false,
+  selectedEvent,
+  selectedMood,
+}) {
   const [isLoading, setIsLoading] = useState(false);
   const [looks, setLooks] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -13,7 +20,34 @@ export default function AILookButton({ item, allItems, isMulti = false }) {
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      const results = await generateAILooks(item.id);
+      // On capte la position GPS exacte du téléphone/navigateur
+      let userCoords = null;
+      if ("geolocation" in navigator) {
+        try {
+          const position = await new Promise((resolve, reject) => {
+            // Timeout de 4 secondes pour ne pas bloquer l'utilisateur si le GPS rame
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+              timeout: 4000,
+            });
+          });
+          userCoords = {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          };
+        } catch (err) {
+          console.warn(
+            "Géolocalisation refusée ou trop longue, utilisation de la ville par défaut.",
+          );
+        }
+      }
+
+      // On envoie les coordonnées avec le reste des paramètres
+      const results = await generateAILooks(
+        isCarteBlanche ? [] : item.id,
+        selectedEvent,
+        selectedMood,
+        userCoords,
+      );
       setLooks(results);
     } catch (error) {
       toast.error("Erreur lors de la génération : " + error.message);
@@ -25,15 +59,12 @@ export default function AILookButton({ item, allItems, isMulti = false }) {
   const handleSave = async (look) => {
     setIsSaving(true);
     try {
-      // On lance la notification juste avant la sauvegarde
       toast.success("Tenue sauvegardée avec succès !");
       await saveGeneratedOutfit(look.name, look.itemIds);
     } catch (error) {
-      // Si c'est le signal de redirection de Next.js, on le laisse passer !
       if (error.message === "NEXT_REDIRECT") {
         throw error;
       }
-      // Sinon, on affiche l'erreur en rouge
       toast.error("Erreur lors de la sauvegarde : " + error.message);
       setIsSaving(false);
     }
@@ -43,8 +74,15 @@ export default function AILookButton({ item, allItems, isMulti = false }) {
 
   return (
     <>
-      {/* AFFICHAGE DU BOUTON (Soit sur l'image, soit dans la barre multi-sélection) */}
-      {!isMulti ? (
+      {isCarteBlanche ? (
+        <button
+          onClick={handleGenerate}
+          disabled={isLoading}
+          className="w-full md:w-auto bg-black text-white text-xs uppercase tracking-widest py-3 px-8 hover:bg-[#C5A059] transition-colors shadow-md disabled:bg-neutral-800"
+        >
+          {isLoading ? "Réflexion..." : "✨ Look 100% IA"}
+        </button>
+      ) : !isMulti ? (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-auto">
           <button
             onClick={handleGenerate}
@@ -64,10 +102,8 @@ export default function AILookButton({ item, allItems, isMulti = false }) {
         </button>
       )}
 
-      {/* 1. L'ÉCRAN DE CHARGEMENT CHIC (Pendant la réflexion de Gemini) */}
       {isLoading && <DiamondLoader />}
 
-      {/* 2. LA FENÊTRE MODAL DES RÉSULTATS (Une fois terminé) */}
       {!isLoading && looks && (
         <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
           <div className="bg-white border border-neutral-200 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-8 relative">
@@ -83,7 +119,9 @@ export default function AILookButton({ item, allItems, isMulti = false }) {
                 Propositions de l'IA
               </h2>
               <p className="text-neutral-500 text-center mb-10">
-                Base du look : {item.name}
+                {isCarteBlanche
+                  ? "Choix libre de l'IA"
+                  : `Base du look : ${item?.name}`}
               </p>
 
               <div className="space-y-6">

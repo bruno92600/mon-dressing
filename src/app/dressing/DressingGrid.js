@@ -7,8 +7,30 @@ import ZoomableImage from "./ZoomableImage";
 
 export default function DressingGrid({ items }) {
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedEvent, setSelectedEvent] = useState("");
 
-  // Ajoute ou retire un vêtement de la sélection
+  // 👇 NOUVEAU : État pour mémoriser l'humeur
+  const [selectedMood, setSelectedMood] = useState("");
+
+  const events = [
+    "☕ Quotidien",
+    "💼 Bureau",
+    "🤝 Entretien pro",
+    "🍽️ Dîner / Soirée",
+    "🎉 Anniversaire / Fête",
+    "💍 Mariage",
+  ];
+
+  // 👇 NOUVEAU : Liste des humeurs
+  const moods = [
+    "😌 Confort",
+    "🖤 Minimaliste",
+    "✨ Audacieux",
+    "👑 Chic",
+    "🎨 Créatif",
+    "🌸 Romantique",
+  ];
+
   const toggleSelection = (id) => {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
@@ -17,6 +39,69 @@ export default function DressingGrid({ items }) {
 
   return (
     <>
+      {/* Bloc d'options (Événement + Humeur + Bouton) */}
+      <div className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <div className="w-full md:w-auto overflow-hidden flex flex-col gap-4">
+          {/* Ligne 1 : Événements */}
+          <div>
+            <h2 className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
+              Pour quelle occasion ?
+            </h2>
+            <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              {events.map((evt) => (
+                <button
+                  key={evt}
+                  onClick={() =>
+                    setSelectedEvent(selectedEvent === evt ? "" : evt)
+                  }
+                  className={`whitespace-nowrap px-5 py-2 rounded-full text-sm border transition-colors cursor-pointer ${
+                    selectedEvent === evt
+                      ? "bg-black text-white border-black shadow-md"
+                      : "bg-white text-neutral-600 border-neutral-200 hover:border-[#C5A059]"
+                  }`}
+                >
+                  {evt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 👇 NOUVEAU : Ligne 2 : Humeur */}
+          <div>
+            <h2 className="text-xs uppercase tracking-widest text-neutral-500 mb-3">
+              Humeur du jour
+            </h2>
+            <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+              {moods.map((mood) => (
+                <button
+                  key={mood}
+                  onClick={() =>
+                    setSelectedMood(selectedMood === mood ? "" : mood)
+                  }
+                  className={`whitespace-nowrap px-5 py-2 rounded-full text-sm border transition-colors cursor-pointer ${
+                    selectedMood === mood
+                      ? "bg-[#C5A059] text-white border-[#C5A059] shadow-md font-medium"
+                      : "bg-white text-neutral-600 border-neutral-200 hover:border-[#C5A059]"
+                  }`}
+                >
+                  {mood}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Le bouton Look 100% IA (qui reçoit maintenant l'humeur) */}
+        <div className="w-full md:w-auto flex-shrink-0 pb-2">
+          <AILookButton
+            isCarteBlanche={true}
+            allItems={items}
+            selectedEvent={selectedEvent}
+            selectedMood={selectedMood}
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-24">
         {items.map((item) => {
           const isSelected = selectedIds.includes(item.id);
@@ -30,7 +115,6 @@ export default function DressingGrid({ items }) {
                   : "border-neutral-200 hover:border-[#C5A059]"
               }`}
             >
-              {/* LA CASE À COCHER */}
               <div className="absolute top-3 left-3 z-20">
                 <input
                   type="checkbox"
@@ -40,7 +124,6 @@ export default function DressingGrid({ items }) {
                 />
               </div>
 
-              {/* Bouton de suppression */}
               <form
                 action={deleteItem}
                 className="absolute top-2 right-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity z-10"
@@ -54,9 +137,14 @@ export default function DressingGrid({ items }) {
                 </button>
               </form>
 
-              {/* Le bouton Look IA individuel disparaît si on est en mode multi-sélection */}
+              {/* Bouton IA individuel (qui reçoit l'humeur) */}
               {selectedIds.length === 0 && (
-                <AILookButton item={item} allItems={items} />
+                <AILookButton
+                  item={item}
+                  allItems={items}
+                  selectedEvent={selectedEvent}
+                  selectedMood={selectedMood}
+                />
               )}
 
               <ZoomableImage imageUrl={item.imageUrl} name={item.name} />
@@ -76,7 +164,6 @@ export default function DressingGrid({ items }) {
         )}
       </div>
 
-      {/* LA BARRE FLOTTANTE MAGIQUE CORRIGÉE */}
       {selectedIds.length > 0 && (
         <div className="fixed bottom-8 inset-x-0 flex justify-center pointer-events-none z-50">
           <div className="bg-black text-white px-8 py-4 shadow-2xl flex items-center gap-6 rounded-full animate-fade-in pointer-events-auto">
@@ -85,10 +172,13 @@ export default function DressingGrid({ items }) {
               sélectionnée{selectedIds.length > 1 ? "s" : ""}
             </span>
 
+            {/* Bouton IA multiple (qui reçoit l'humeur) */}
             <AILookButton
               item={{ id: selectedIds, name: "Sélection multiple" }}
               allItems={items}
               isMulti={true}
+              selectedEvent={selectedEvent}
+              selectedMood={selectedMood}
             />
 
             <button

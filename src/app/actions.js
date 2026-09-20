@@ -53,23 +53,25 @@ export async function deleteItem(formData) {
   revalidatePath("/dressing");
 }
 
-// 3. Action pour générer les looks avec Gemini (CONNECTÉ AU PROFIL)
-export async function generateAILooks(baseItemIds) {
+// 3. Action pour générer les looks avec Gemini (CONNECTÉ AU PROFIL ET AU GPS)
+export async function generateAILooks(
+  baseItemIds,
+  selectedEvent,
+  selectedMood,
+  coords,
+) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("La clé API Gemini est absente du fichier .env");
   }
 
-  // --- MODIFICATION ICI ---
   const clerkUser = await currentUser();
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
 
   const user = await prisma.user.findUnique({
     where: { email: userEmail },
   });
-  // ------------------------
 
-  // On construit les phrases dynamiques pour l'IA
   const clientGender =
     user?.gender && user.gender !== "Non précisé"
       ? user.gender.toLowerCase()
@@ -78,9 +80,12 @@ export async function generateAILooks(baseItemIds) {
   const stylePrefs = user?.stylePreferences
     ? `\nPRÉFÉRENCES DE STYLE DU CLIENT À RESPECTER ABSOLUMENT : "${user.stylePreferences}"`
     : "";
-  // ----------------------------------------------------
 
-  const idsArray = Array.isArray(baseItemIds) ? baseItemIds : [baseItemIds];
+  const idsArray = baseItemIds
+    ? Array.isArray(baseItemIds)
+      ? baseItemIds
+      : [baseItemIds]
+    : [];
 
   const modelsRes = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
@@ -93,26 +98,33 @@ export async function generateAILooks(baseItemIds) {
     ? availableModel.name
     : "models/gemini-3.6-flash";
 
-  // Au lieu de await prisma.item.findMany();
   const allItems = await prisma.item.findMany({
     where: { userId: user.id },
   });
 
-  // --- NOUVEAU : On capte la température ---
-  const weather = await getLocalWeather();
+  // Utilisation des coordonnées du téléphone, ou Asnières par défaut si refusé
+  const lat = coords?.lat || 48.9107;
+  const lon = coords?.lon || 2.289;
+
+  const weather = await getLocalWeather(lat, lon);
   const weatherContext = weather
     ? `ATTENTION - MÉTÉO DU JOUR : Il fait actuellement ${weather.temperature}°C à l'extérieur. Tu DOIS adapter ta proposition de tenue à cette température de manière stricte et logique.`
     : `Météo inconnue, propose une tenue de mi-saison standard.`;
-  // ------------------------------------------
+
+  const eventContext = selectedEvent
+    ? `ATTENTION - ÉVÉNEMENT : Le client participe à l'événement suivant : "${selectedEvent}". Tu DOIS proposer une tenue dont le niveau de formalité et le style correspondent parfaitement à cette occasion.`
+    : `Aucun événement spécifique précisé, propose une tenue polyvalente.`;
+
+  const moodContext = selectedMood
+    ? `ATTENTION - HUMEUR DU JOUR : Le client souhaite une tenue qui reflète cette ambiance : "${selectedMood}". Adapte impérativement le style, les matières ou les associations pour correspondre à cet état d'esprit.`
+    : ``;
 
   const baseItems = allItems.filter((item) => idsArray.includes(item.id));
   let otherItems = allItems.filter((item) => !idsArray.includes(item.id));
 
-  // 1. Filtrage par catégorie stricte
   const selectedCategories = baseItems.map((item) => item.category);
   const singleUseCategories = ["Bas", "Chaussures", "Maroquinerie"];
 
-  // 2. Filtrage par mots-clés
   const exclusiveKeywords = [
     "casquette",
     "bonnet",
@@ -154,29 +166,36 @@ export async function generateAILooks(baseItemIds) {
     .map((i) => `${i.name} (Catégorie: ${i.category})`)
     .join(" ET ");
 
-  // --- LE NOUVEAU PROMPT DYNAMIQUE ---
+  const obligationText =
+    baseItems.length > 0
+      ? `Le client veut OBLIGATOIREMENT porter ces pièces ensemble aujourd'hui : \n${baseItemsList}`
+      : `Le client te laisse TOTALEMENT CARTE BLANCHE pour choisir la meilleure tenue dans le dressing.`;
+
+  const ruleTwo =
+    baseItems.length > 0
+      ? `2. Chaque tenue doit INCLURE TOUTES les pièces de base demandées (ajoute leurs IDs dans "itemIds").`
+      : `2. Tu as le choix total des pièces. Assure-toi de sélectionner une tenue hautement stylée et adaptée au contexte.`;
+
   const prompt = `Tu es un styliste personnel de haut niveau.
   ${weatherContext}
+  ${eventContext} 
+  ${moodContext}
 
     Voici les préférences de l'utilisateur :
     - Âge : ${user.age || "Non renseigné"}
     - Genre : ${user.gender || "Non renseigné"}
     - Style : ${user.stylePreferences || "Aucune préférence particulière"}
 
-    Voici le dressing disponible :
-    ${JSON.stringify(allItems)}
-
-  Ton client est ${clientGender} ${clientAge}. ${stylePrefs}
+    Ton client est ${clientGender} ${clientAge}. ${stylePrefs}
   
-  Le client veut OBLIGATOIREMENT porter ces pièces ensemble aujourd'hui : 
-  ${baseItemsList}
+  ${obligationText}
   
   Voici le catalogue strict du reste du dressing disponible pour compléter :
   ${catalog}
   
   RÈGLES ABSOLUES ET STRICTES DE COMPOSITION :
   1. Tu DOIS GÉNÉRER EXACTEMENT 3 TENUES différentes.
-  2. Chaque tenue doit INCLURE TOUTES les pièces de base demandées (ajoute leurs IDs dans "itemIds").
+  ${ruleTwo}
   3. INTERDICTION STRICTE DE FAIRE DES DOUBLONS D'USAGE :
      - Pas de deuxième couvre-chef (casquette, bonnet...) si déjà présent.
      - Pas de deuxième sac si déjà présent.
@@ -225,10 +244,16 @@ export async function generateAILooks(baseItemIds) {
   }
 
   const text = data.candidates[0].content.parts[0].text;
-  const cleanJson = text
-    .replace(/```json/g, "")
-    .replace(/```/g, "")
-    .trim();
+
+  // On isole de force le tableau JSON en ignorant le bla-bla avant et après (Extraction robuste)
+  const startIndex = text.indexOf("[");
+  const endIndex = text.lastIndexOf("]");
+
+  if (startIndex === -1 || endIndex === -1) {
+    throw new Error("L'IA n'a pas respecté la structure des données demandée.");
+  }
+
+  const cleanJson = text.substring(startIndex, endIndex + 1);
   return JSON.parse(cleanJson);
 }
 
@@ -386,18 +411,15 @@ export async function updateProfile(formData) {
   redirect("/dressing");
 }
 
-// Fonction pour récupérer la météo locale en temps réel
-async function getLocalWeather() {
+// Fonction pour récupérer la météo locale en temps réel (dynamique)
+async function getLocalWeather(lat, lon) {
   try {
-    // Coordonnées configurées sur Asnières-sur-Seine
     const response = await fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=48.9107&longitude=2.2890&current_weather=true",
-      {
-        cache: "no-store", // On force la mise à jour à chaque appel
-      },
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
+      { cache: "no-store" },
     );
     const data = await response.json();
-    return data.current_weather; // Renvoie un objet { temperature: 18.5, weathercode: 1, ... }
+    return data.current_weather;
   } catch (error) {
     console.error("Erreur météo:", error);
     return null;

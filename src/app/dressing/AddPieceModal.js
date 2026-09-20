@@ -3,14 +3,28 @@
 import { useState } from "react";
 import { saveItem, analyzeImageWithAI } from "../actions";
 import { CldUploadWidget } from "next-cloudinary";
+import { useRouter } from "next/navigation";
 
 export default function AddPieceModal() {
+  const router = useRouter();
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
-
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Haut");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // 👇 Nouvel état pour stocker le message d'erreur
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const resetForm = () => {
+    setImageUrl("");
+    setName("");
+    setCategory("Haut");
+    setIsAnalyzing(false);
+    setErrorMessage(""); // On nettoie l'erreur
+    setIsModalOpen(false);
+  };
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -22,10 +36,8 @@ export default function AddPieceModal() {
 
     await saveItem(formData);
 
-    setIsModalOpen(false);
-    setImageUrl("");
-    setName("");
-    setCategory("Haut");
+    resetForm();
+    router.refresh();
   };
 
   const handleUploadSuccess = async (result) => {
@@ -33,6 +45,7 @@ export default function AddPieceModal() {
 
     const uploadedUrl = result.info.secure_url;
     setImageUrl(uploadedUrl);
+    setErrorMessage(""); // On efface les anciennes erreurs au nouvel upload
 
     setIsAnalyzing(true);
     try {
@@ -43,6 +56,8 @@ export default function AddPieceModal() {
       }
     } catch (error) {
       console.error("Erreur lors de l'auto-tagging :", error);
+      // 👇 Si l'IA plante (quota ou autre), on affiche notre beau message
+      setErrorMessage("L'IA se repose, veuillez réessayer dans 20 secondes.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -61,7 +76,7 @@ export default function AddPieceModal() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-md p-8 shadow-2xl relative">
             <button
-              onClick={() => setIsModalOpen(false)}
+              onClick={resetForm}
               className="absolute top-4 right-4 text-neutral-400 hover:text-black text-xl"
             >
               &times;
@@ -88,7 +103,9 @@ export default function AddPieceModal() {
                         className={`w-full border-2 border-dashed p-4 text-center transition-colors cursor-pointer flex flex-col items-center justify-center min-h-[160px] relative ${
                           isAnalyzing
                             ? "border-[#C5A059] bg-[#C5A059]/5"
-                            : "border-neutral-300 hover:border-black"
+                            : errorMessage
+                              ? "border-red-400 bg-red-50"
+                              : "border-neutral-300 hover:border-black"
                         }`}
                       >
                         {imageUrl ? (
@@ -116,6 +133,13 @@ export default function AddPieceModal() {
                     );
                   }}
                 </CldUploadWidget>
+
+                {/* 👇 Affichage chic du message d'erreur s'il y en a un */}
+                {errorMessage && (
+                  <p className="text-red-500 text-[10px] uppercase tracking-widest text-center mt-3 font-bold">
+                    ⚠️ {errorMessage}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -129,7 +153,11 @@ export default function AddPieceModal() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={isAnalyzing}
-                  placeholder="L'IA s'en occupe..."
+                  placeholder={
+                    errorMessage
+                      ? "Saisissez manuellement..."
+                      : "L'IA s'en occupe..."
+                  }
                   className="w-full border-b border-black py-2 outline-none focus:border-[#C5A059] transition-colors disabled:text-neutral-400 disabled:border-neutral-200"
                 />
               </div>
