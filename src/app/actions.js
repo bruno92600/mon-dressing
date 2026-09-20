@@ -53,12 +53,13 @@ export async function deleteItem(formData) {
   revalidatePath("/dressing");
 }
 
-// 3. Action pour générer les looks avec Gemini (CONNECTÉ AU PROFIL ET AU GPS)
+// 3. Action pour générer les looks avec Gemini (CONNECTÉ AU PROFIL, GPS ET SHOPPING)
 export async function generateAILooks(
   baseItemIds,
   selectedEvent,
   selectedMood,
   coords,
+  isTomorrow = false,
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -102,14 +103,19 @@ export async function generateAILooks(
     where: { userId: user.id },
   });
 
-  // Utilisation des coordonnées du téléphone, ou Asnières par défaut si refusé
   const lat = coords?.lat || 48.9107;
   const lon = coords?.lon || 2.289;
 
-  const weather = await getLocalWeather(lat, lon);
-  const weatherContext = weather
-    ? `ATTENTION - MÉTÉO DU JOUR : Il fait actuellement ${weather.temperature}°C à l'extérieur. Tu DOIS adapter ta proposition de tenue à cette température de manière stricte et logique.`
-    : `Météo inconnue, propose une tenue de mi-saison standard.`;
+  const weather = await getLocalWeather(lat, lon, isTomorrow);
+
+  let weatherContext = `Météo inconnue, propose une tenue de mi-saison standard.`;
+  if (weather) {
+    if (weather.isTomorrow) {
+      weatherContext = `ATTENTION - MÉTÉO DE DEMAIN : La température maximale prévue demain est de ${Math.round(weather.temp)}°C. Tu DOIS adapter ta proposition de tenue à cette température.`;
+    } else {
+      weatherContext = `ATTENTION - MÉTÉO DU JOUR : Il fait actuellement ${Math.round(weather.temp)}°C à l'extérieur. Tu DOIS adapter ta proposition de tenue à cette température.`;
+    }
+  }
 
   const eventContext = selectedEvent
     ? `ATTENTION - ÉVÉNEMENT : Le client participe à l'événement suivant : "${selectedEvent}". Tu DOIS proposer une tenue dont le niveau de formalité et le style correspondent parfaitement à cette occasion.`
@@ -176,6 +182,7 @@ export async function generateAILooks(
       ? `2. Chaque tenue doit INCLURE TOUTES les pièces de base demandées (ajoute leurs IDs dans "itemIds").`
       : `2. Tu as le choix total des pièces. Assure-toi de sélectionner une tenue hautement stylée et adaptée au contexte.`;
 
+  // 👇 CORRECTION : Le prompt est désormais universel pour le shopping
   const prompt = `Tu es un styliste personnel de haut niveau.
   ${weatherContext}
   ${eventContext} 
@@ -200,15 +207,23 @@ export async function generateAILooks(
      - Pas de deuxième couvre-chef (casquette, bonnet...) si déjà présent.
      - Pas de deuxième sac si déjà présent.
      - Pas de deuxième pièce d'extérieur (manteau, veste...) si déjà présente.
-  4. COHÉRENCE VISUELLE ABSOLUE : Dans ta "description", parle des vêtements de manière élégante et naturelle. N'ÉCRIS JAMAIS les IDs (ex: "cmu6...") dans le texte de la description. Les IDs ne doivent être placés QUE dans le tableau "itemIds". Cependant, tu n'as le droit de décrire QUE les pièces que tu as réellement sélectionnées dans "itemIds". N'invente aucun vêtement.
-  5. Pense "Tenue Réelle" : Assure-toi de toujours inclure les IDs nécessaires pour que le client puisse sortir (un Haut, un Bas, des Chaussures).
+  4. COHÉRENCE VISUELLE ABSOLUE : Dans ta "description", parle des vêtements de manière élégante et naturelle. N'ÉCRIS JAMAIS les IDs.
+  5. PENSE "TENUE RÉELLE" ET GESTION DES MANQUES : Assure-toi d'inclure un Haut, un Bas, et des Chaussures. Si le catalogue ne contient pas une catégorie essentielle (ex: aucune chaussure), fais de ton mieux avec ce qui existe, mais tu DOIS recommander l'achat de cette pièce manquante dans tes suggestions.
+  6. CONSEIL SHOPPING : Pour chaque tenue, propose 1 à 2 suggestions d'achats (vêtements, chaussures ou accessoires) qui viendraient sublimer ou compléter le look. Base-toi strictement sur les préférences de style du profil utilisateur pour suggérer des pièces et des marques pertinentes.
   
   Tu dois répondre UNIQUEMENT au format JSON strict. Ton résultat doit être un tableau contenant EXACTEMENT 3 objets :
   [
     {
       "name": "Nom de la tenue 1",
-      "description": "Explication naturelle de la tenue sans mentionner aucun ID...",
-      "itemIds": ["id_base_1", "id_base_2", "id_complement_1", "id_complement_2"]
+      "description": "Explication naturelle de la tenue...",
+      "itemIds": ["id_base_1", "id_base_2", "id_complement_1", "id_complement_2"],
+      "shoppingSuggestions": [
+        {
+          "itemToBuy": "Nom de la pièce (ex: Surchemise en flanelle, Bague en argent)",
+          "reason": "Explication de la valeur stylistique ajoutée au look...",
+          "brands": ["Marque 1", "Marque 2"]
+        }
+      ]
     }
   ]`;
 
@@ -244,8 +259,6 @@ export async function generateAILooks(
   }
 
   const text = data.candidates[0].content.parts[0].text;
-
-  // On isole de force le tableau JSON en ignorant le bla-bla avant et après (Extraction robuste)
   const startIndex = text.indexOf("[");
   const endIndex = text.lastIndexOf("]");
 
@@ -411,17 +424,162 @@ export async function updateProfile(formData) {
   redirect("/dressing");
 }
 
-// Fonction pour récupérer la météo locale en temps réel (dynamique)
-async function getLocalWeather(lat, lon) {
+// Fonction météo intelligente (Aujourd'hui = Temps réel / Demain = Prévision Max)
+async function getLocalWeather(lat, lon, isTomorrow) {
   try {
-    const response = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
-      { cache: "no-store" },
-    );
-    const data = await response.json();
-    return data.current_weather;
+    if (isTomorrow) {
+      const response = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max&timezone=Europe/Paris&forecast_days=2`,
+        { cache: "no-store" },
+      );
+      const data = await response.json();
+      return { temp: data.daily.temperature_2m_max[1], isTomorrow: true }; // [1] = Demain
+    } else {
+      const response = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
+        { cache: "no-store" },
+      );
+      const data = await response.json();
+      return { temp: data.current_weather.temperature, isTomorrow: false };
+    }
   } catch (error) {
     console.error("Erreur météo:", error);
     return null;
   }
+}
+
+// 1. Mise à jour de la fonction de génération pour récupérer les prévisions journalières
+export async function generateTravelSuitcase(destination, days) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("La clé API Gemini est absente.");
+
+  const { currentUser } = await import("@clerk/nextjs/server");
+  const clerkUser = await currentUser();
+
+  const prisma = (await import("@/lib/prisma")).default;
+  const user = await prisma.user.findUnique({
+    where: { email: clerkUser.emailAddresses[0].emailAddress },
+  });
+  const allItems = await prisma.item.findMany({ where: { userId: user.id } });
+
+  const geoRes = await fetch(
+    `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(destination)}&count=1&language=fr&format=json`,
+  );
+  const geoData = await geoRes.json();
+
+  let weatherContext = "Météo locale inconnue.";
+  let dailyForecasts = [];
+  let cityName = destination;
+
+  if (geoData.results && geoData.results.length > 0) {
+    const { latitude, longitude, name, country } = geoData.results[0];
+    cityName = `${name}, ${country}`;
+
+    // On demande un nombre de jours adapté (maximum 10 jours pour Open-Meteo)
+    const forecastDays = Math.min(Math.max(Number(days), 1), 10);
+    const weatherRes = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Paris&forecast_days=${forecastDays}`,
+    );
+    const weatherData = await weatherRes.json();
+
+    if (weatherData.daily) {
+      const { time, temperature_2m_max, temperature_2m_min } =
+        weatherData.daily;
+      dailyForecasts = time.map((dateStr, idx) => ({
+        date: new Date(dateStr).toLocaleDateString("fr-FR", {
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }),
+        max: Math.round(temperature_2m_max[idx]),
+        min: Math.round(temperature_2m_min[idx]),
+      }));
+
+      const avgMax = Math.round(
+        temperature_2m_max.reduce((a, b) => a + b, 0) /
+          temperature_2m_max.length,
+      );
+      weatherContext = `Climat à ${cityName} : moyenne de ${avgMax}°C sur la période.`;
+    }
+  }
+
+  const modelsRes = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+  );
+  const modelsData = await modelsRes.json();
+  const availableModel = modelsData.models?.find((m) =>
+    m.supportedGenerationMethods?.includes("generateContent"),
+  );
+  const modelName = availableModel
+    ? availableModel.name
+    : "models/gemini-1.5-flash";
+
+  const prompt = `Tu es un styliste expert en création de garde-robe capsule minimaliste.
+  Ton client part pour ${days} jours à ${cityName}.
+  CONTEXTE CLIMATIQUE : ${weatherContext}
+  
+  DRESSING DISPONIBLE :
+  ${JSON.stringify(allItems.map((i) => ({ id: i.id, name: i.name, category: i.category })))}
+  
+  Sélectionne une garde-robe intelligente et minimaliste adaptée à cette durée et cette météo.
+  
+  Tu DOIS répondre UNIQUEMENT par un objet JSON valide, sans texte autour, avec cette structure exacte :
+  {
+    "title": "Nom accrocheur (ex: Valise pour Madrid)",
+    "description": "Courte explication stylistique et météorologique de tes choix.",
+    "suitcaseItemIds": ["id1", "id2", "id3", "id4"]
+  }`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { response_mime_type: "application/json" },
+      }),
+    },
+  );
+
+  const data = await res.json();
+  if (
+    !data.candidates ||
+    data.candidates.length === 0 ||
+    !data.candidates[0].content
+  ) {
+    throw new Error("L'IA n'a pas pu générer la valise.");
+  }
+
+  const text = data.candidates[0].content.parts[0].text;
+  const cleanJsonText = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
+  const result = JSON.parse(cleanJsonText);
+
+  // On injecte les prévisions météo pour l'affichage côté client
+  return { ...result, cityName, dailyForecasts };
+}
+
+// 2. Action pour enregistrer la valise (similaire aux tenues)
+export async function saveTravelSuitcase(title, itemIds) {
+  const { currentUser } = await import("@clerk/nextjs/server");
+  const clerkUser = await currentUser();
+  const prisma = (await import("@/lib/prisma")).default;
+
+  const user = await prisma.user.findUnique({
+    where: { email: clerkUser.emailAddresses[0].emailAddress },
+  });
+  if (!user) throw new Error("Utilisateur non trouvé");
+
+  await prisma.outfit.create({
+    data: {
+      userId: user.id,
+      styleNotes: `[VALISE] ${title}`,
+      items: {
+        connect: itemIds.map((id) => ({ id })),
+      },
+    },
+  });
 }

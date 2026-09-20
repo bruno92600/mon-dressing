@@ -1,34 +1,29 @@
 import prisma from "@/lib/prisma";
 import Link from "next/link";
-import OutfitCard from "./OutfitCard"; // Notre nouveau composant visuel !
 import { UserButton } from "@clerk/nextjs";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import WeatherWidget from "@/components/WeatherWidget";
+import TravelForm from "./TravelForm";
 
-export default async function TenuesPage() {
-  // MAGIE PRISMA : On récupère les tenues ET on inclut les items liés
+export default async function VoyagePage() {
   const { userId } = await auth();
   if (!userId) redirect("/");
 
   const clerkUser = await currentUser();
-  const userEmail = clerkUser.emailAddresses[0].emailAddress;
-  const dbUser = await prisma.user.findUnique({ where: { email: userEmail } });
+  const dbUser = await prisma.user.findUnique({
+    where: { email: clerkUser.emailAddresses[0].emailAddress },
+  });
 
-  // On récupère uniquement les tenues de CE compte
-  const outfits = dbUser
-    ? await prisma.outfit.findMany({
-        where: { userId: dbUser.id },
-        include: { items: true },
-        orderBy: { createdAt: "desc" },
-      })
+  // Récupérer tout le dressing de l'utilisateur pour le transmettre au Client Component
+  const allItems = dbUser
+    ? await prisma.item.findMany({ where: { userId: dbUser.id } })
     : [];
 
   return (
     <main className="min-h-screen bg-[#FAFAFA] text-black font-sans">
-      {/* --- HEADER RESPONSIVE TENUES --- */}
+      {/* HEADER ADAPTÉ */}
       <header className="flex flex-col md:flex-row md:justify-between items-center py-4 md:py-6 px-4 md:px-12 border-b border-neutral-200 bg-white gap-4 md:gap-0">
-        {/* Ligne 1 (Mobile) / Gauche (Desktop) : Logo + Avatar */}
         <div className="flex justify-between items-center w-full md:w-auto">
           <div className="text-xl font-serif uppercase tracking-widest text-[#C5A059]">
             Mon Dressing
@@ -38,7 +33,6 @@ export default async function TenuesPage() {
           </div>
         </div>
 
-        {/* Ligne 2 (Mobile) / Centre (Desktop) : Navigation */}
         <nav className="flex justify-center gap-6 md:gap-8 text-[10px] md:text-xs uppercase tracking-widest w-full md:w-auto overflow-x-auto no-scrollbar">
           <Link
             href="/dressing"
@@ -48,13 +42,13 @@ export default async function TenuesPage() {
           </Link>
           <Link
             href="/tenues"
-            className="border-b border-black pb-1 text-black"
+            className="text-neutral-400 hover:text-black transition-colors"
           >
             Tenues
           </Link>
           <Link
             href="/voyage"
-            className="text-neutral-400 hover:text-black transition-colors"
+            className="border-b border-black pb-1 text-black"
           >
             Valise
           </Link>
@@ -72,42 +66,26 @@ export default async function TenuesPage() {
           </Link>
         </nav>
 
-        {/* Ligne 3 (Mobile) / Droite (Desktop) : Météo + Avatar */}
-        <div className="flex items-center justify-center md:justify-end gap-3 md:gap-4 w-full md:w-auto">
+        <div className="flex items-center justify-center md:justify-end gap-4 w-full md:w-auto">
           <div className="transform scale-90 md:scale-100 origin-center md:origin-right">
             <WeatherWidget />
           </div>
-
           <div className="hidden md:block">
             <UserButton afterSignOutUrl="/" />
           </div>
         </div>
       </header>
 
-      {/* CONTENU PRINCIPAL */}
       <section className="px-6 md:px-12 py-12 max-w-7xl mx-auto">
-        <h1 className="text-4xl font-serif mb-2">Lookbook</h1>
-        <p className="text-neutral-500 mb-12">
-          Le répertoire de vos tenues générées par l'IA.
+        <h1 className="text-4xl font-serif mb-2 text-center md:text-left">
+          Garde-Robe Capsule
+        </h1>
+        <p className="text-neutral-500 mb-12 text-center md:text-left">
+          L'IA analyse le climat de votre destination et prépare votre valise
+          idéale.
         </p>
 
-        {outfits.length === 0 ? (
-          <div className="text-center py-24 bg-white border border-neutral-200">
-            <p className="text-neutral-400 italic font-serif text-lg">
-              Votre lookbook est vide.
-            </p>
-            <p className="text-neutral-400 text-sm mt-2">
-              Rendez-vous dans votre dressing pour générer votre première tenue.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* On récupère 'index' fourni par la méthode map() et on le donne à OutfitCard */}
-            {outfits.map((outfit, index) => (
-              <OutfitCard key={outfit.id} outfit={outfit} index={index} />
-            ))}
-          </div>
-        )}
+        <TravelForm allItems={allItems} />
       </section>
     </main>
   );

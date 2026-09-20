@@ -7,7 +7,6 @@ export default function WeatherWidget() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // 1. Demander la géolocalisation au chargement
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -17,12 +16,10 @@ export default function WeatherWidget() {
         (error) => {
           console.error("Géolocalisation refusée ou indisponible", error);
           setError("Localisation requise");
-          // Fallback sur Asnières si refus
-          fetchWeather(48.9107, 2.289);
+          fetchWeather(48.9107, 2.289); // Fallback par défaut
         },
       );
     } else {
-      // Fallback si navigateur non compatible
       fetchWeather(48.9107, 2.289);
     }
   }, []);
@@ -30,10 +27,16 @@ export default function WeatherWidget() {
   const fetchWeather = async (lat, lon) => {
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max&timezone=Europe/Paris&forecast_days=3`,
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max&current_weather=true&timezone=Europe/Paris&forecast_days=3`,
       );
       const data = await res.json();
-      setWeatherData(data.daily);
+
+      // Vérification que les données attendues sont bien présentes
+      if (data.error || !data.daily || !data.current_weather) {
+        throw new Error("Données météo incomplètes");
+      }
+
+      setWeatherData({ daily: data.daily, current: data.current_weather });
     } catch (err) {
       console.error(err);
       setError("Erreur météo");
@@ -60,7 +63,8 @@ export default function WeatherWidget() {
       .replace(".", "");
   };
 
-  if (!weatherData)
+  // Sécurité d'affichage : si weatherData ou weatherData.daily est absent, on affiche le fallback
+  if (!weatherData || !weatherData.daily)
     return (
       <div className="text-xs text-neutral-400 bg-neutral-50 px-4 py-2 rounded-full border border-neutral-200">
         Recherche du ciel...
@@ -69,22 +73,31 @@ export default function WeatherWidget() {
 
   return (
     <div className="flex items-center gap-3 text-xs text-neutral-600 bg-neutral-100 px-4 py-2 rounded-full shadow-inner border border-neutral-200 whitespace-nowrap">
-      {weatherData.time.map((time, index) => (
-        <div
-          key={time}
-          className="flex items-center gap-1.5 border-r last:border-0 border-neutral-300 pr-3 last:pr-0"
-        >
-          <span className="font-bold uppercase text-[9px] tracking-wider text-neutral-400">
-            {getDayLabel(index, time)}
-          </span>
-          <span className="text-sm">
-            {getWeatherIcon(weatherData.weathercode[index])}
-          </span>
-          <span className="font-medium tracking-wide">
-            {Math.round(weatherData.temperature_2m_max[index])}°
-          </span>
-        </div>
-      ))}
+      {weatherData.daily.time.map((time, index) => {
+        const isToday = index === 0;
+        // On prend la température et l'icône ACTUELLES pour aujourd'hui. Sinon la prévision max.
+        const temp = isToday
+          ? weatherData.current.temperature
+          : weatherData.daily.temperature_2m_max[index];
+        const code = isToday
+          ? weatherData.current.weathercode
+          : weatherData.daily.weathercode[index];
+
+        return (
+          <div
+            key={time}
+            className="flex items-center gap-1.5 border-r last:border-0 border-neutral-300 pr-3 last:pr-0"
+          >
+            <span className="font-bold uppercase text-[9px] tracking-wider text-neutral-400">
+              {getDayLabel(index, time)}
+            </span>
+            <span className="text-sm">{getWeatherIcon(code)}</span>
+            <span className="font-medium tracking-wide">
+              {Math.round(temp)}°
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

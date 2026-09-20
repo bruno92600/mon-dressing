@@ -1,11 +1,11 @@
 import prisma from "@/lib/prisma";
-import AddPieceModal from "./AddPieceModal";
 import Link from "next/link";
 import DressingGrid from "./DressingGrid";
 import { UserButton } from "@clerk/nextjs";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import WeatherWidget from "@/components/WeatherWidget";
+import AddPieceModal from "./AddPieceModal";
 
 export default async function DressingPage({ searchParams }) {
   const params = await searchParams;
@@ -18,13 +18,11 @@ export default async function DressingPage({ searchParams }) {
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
   const dbUser = await prisma.user.findUnique({ where: { email: userEmail } });
 
-  // 👇 NOUVEAU : On prépare le filtre de recherche intelligemment
   const whereCondition = { userId: dbUser?.id };
   if (currentCategory) {
-    whereCondition.category = currentCategory; // Ajoute le filtre uniquement si une catégorie est sélectionnée
+    whereCondition.category = currentCategory;
   }
 
-  // On applique la condition à la base de données
   const items = dbUser
     ? await prisma.item.findMany({
         where: whereCondition,
@@ -42,34 +40,64 @@ export default async function DressingPage({ searchParams }) {
 
   return (
     <main className="min-h-screen bg-white text-black font-sans relative">
-      <header className="flex flex-wrap justify-between items-center py-4 md:py-6 px-4 md:px-12 border-b border-neutral-200 bg-white gap-y-4">
-        <div className="text-xl font-serif uppercase tracking-widest text-[#C5A059] order-1">
-          Mon Dressing
+      {/* --- HEADER RESPONSIVE DRESSING --- */}
+      <header className="flex flex-col md:flex-row md:items-center md:justify-between py-4 md:py-6 px-4 md:px-12 border-b border-neutral-200 bg-white gap-4">
+        {/* Ligne 1 (Mobile) / Gauche (Desktop) : Logo + Avatar mobile */}
+        <div className="flex justify-between items-center w-full md:w-auto">
+          <div className="text-xl font-serif uppercase tracking-widest text-[#C5A059]">
+            Mon Dressing
+          </div>
+          <div className="md:hidden">
+            <UserButton afterSignOutUrl="/" />
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 md:gap-6 order-2 md:order-3">
-          <WeatherWidget />
-          <AddPieceModal />
-          <UserButton afterSignOutUrl="/" />
-        </div>
-
-        <nav className="w-full md:w-auto flex justify-center md:justify-start gap-8 text-xs uppercase tracking-widest order-3 md:order-2 pb-2 md:pb-0">
-          <Link href="/dressing" className="border-b border-black pb-1">
+        {/* Ligne 2 (Mobile) / Centre (Desktop) : Navigation */}
+        <nav className="flex justify-center gap-6 md:gap-8 text-[10px] md:text-xs uppercase tracking-widest w-full md:w-auto overflow-x-auto no-scrollbar">
+          <Link
+            href="/dressing"
+            className="border-b border-black pb-1 text-black whitespace-nowrap"
+          >
             Pièces
           </Link>
           <Link
             href="/tenues"
-            className="text-neutral-400 hover:text-black transition-colors"
+            className="text-neutral-400 hover:text-black transition-colors whitespace-nowrap"
           >
             Tenues
           </Link>
           <Link
+            href="/voyage"
+            className="text-neutral-400 hover:text-black transition-colors whitespace-nowrap"
+          >
+            Valise
+          </Link>
+          <Link
+            href="/statistiques"
+            className="text-neutral-400 hover:text-black transition-colors whitespace-nowrap"
+          >
+            Stats
+          </Link>
+          <Link
             href="/profil"
-            className="text-neutral-400 hover:text-black transition-colors"
+            className="text-neutral-400 hover:text-black transition-colors whitespace-nowrap"
           >
             Profil
           </Link>
         </nav>
+
+        {/* Ligne 3 (Mobile) / Droite (Desktop) : Ajouter + Météo + Avatar desktop */}
+        <div className="flex items-center justify-center md:justify-end gap-3 md:gap-4 w-full md:w-auto flex-wrap">
+          <AddPieceModal />
+
+          <div className="transform scale-90 md:scale-100 origin-center md:origin-right">
+            <WeatherWidget />
+          </div>
+
+          <div className="hidden md:block">
+            <UserButton afterSignOutUrl="/" />
+          </div>
+        </div>
       </header>
 
       <section className="px-6 md:px-12 py-12">
