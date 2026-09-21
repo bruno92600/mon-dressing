@@ -44,4 +44,5 @@ model Outfit {
   user        User     @relation(fields: [userId], references: [id])
   items       Item[]   // Les vêtements qui composent ce look
   createdAt   DateTime @default(now())
+  travelData Json?
 }

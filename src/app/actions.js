@@ -7,7 +7,6 @@ import { redirect } from "next/navigation";
 
 // 1. Action pour ajouter un vêtement depuis le modal
 export async function saveItem(formData) {
-  // --- NOUVEAU : Identification ---
   const clerkUser = await currentUser();
   if (!clerkUser) throw new Error("Non autorisé");
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
@@ -17,13 +16,12 @@ export async function saveItem(formData) {
     throw new Error(
       "Profil introuvable, veuillez enregistrer votre profil d'abord.",
     );
-  // --------------------------------
 
   const name = formData.get("name");
   const category = formData.get("category");
   const imageUrl = formData.get("imageUrl");
 
-  const user = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: "contact@mondressing.com" },
     update: {},
     create: { email: "contact@mondressing.com", name: "Propriétaire" },
@@ -45,15 +43,11 @@ export async function saveItem(formData) {
 // 2. Action pour supprimer un vêtement
 export async function deleteItem(formData) {
   const id = formData.get("id");
-
-  await prisma.item.delete({
-    where: { id: id },
-  });
-
+  await prisma.item.delete({ where: { id: id } });
   revalidatePath("/dressing");
 }
 
-// 3. Action pour générer les looks avec Gemini (CONNECTÉ AU PROFIL, GPS ET SHOPPING)
+// 3. Action pour générer les looks avec Gemini
 export async function generateAILooks(
   baseItemIds,
   selectedEvent,
@@ -62,16 +56,11 @@ export async function generateAILooks(
   isTomorrow = false,
 ) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("La clé API Gemini est absente du fichier .env");
-  }
+  if (!apiKey) throw new Error("La clé API Gemini est absente du fichier .env");
 
   const clerkUser = await currentUser();
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
-
-  const user = await prisma.user.findUnique({
-    where: { email: userEmail },
-  });
+  const user = await prisma.user.findUnique({ where: { email: userEmail } });
 
   const clientGender =
     user?.gender && user.gender !== "Non précisé"
@@ -99,13 +88,9 @@ export async function generateAILooks(
     ? availableModel.name
     : "models/gemini-3.6-flash";
 
-  const allItems = await prisma.item.findMany({
-    where: { userId: user.id },
-  });
-
+  const allItems = await prisma.item.findMany({ where: { userId: user.id } });
   const lat = coords?.lat || 48.9107;
   const lon = coords?.lon || 2.289;
-
   const weather = await getLocalWeather(lat, lon, isTomorrow);
 
   let weatherContext = `Météo inconnue, propose une tenue de mi-saison standard.`;
@@ -120,17 +105,14 @@ export async function generateAILooks(
   const eventContext = selectedEvent
     ? `ATTENTION - ÉVÉNEMENT : Le client participe à l'événement suivant : "${selectedEvent}". Tu DOIS proposer une tenue dont le niveau de formalité et le style correspondent parfaitement à cette occasion.`
     : `Aucun événement spécifique précisé, propose une tenue polyvalente.`;
-
   const moodContext = selectedMood
     ? `ATTENTION - HUMEUR DU JOUR : Le client souhaite une tenue qui reflète cette ambiance : "${selectedMood}". Adapte impérativement le style, les matières ou les associations pour correspondre à cet état d'esprit.`
     : ``;
 
   const baseItems = allItems.filter((item) => idsArray.includes(item.id));
   let otherItems = allItems.filter((item) => !idsArray.includes(item.id));
-
   const selectedCategories = baseItems.map((item) => item.category);
   const singleUseCategories = ["Bas", "Chaussures", "Maroquinerie"];
-
   const exclusiveKeywords = [
     "casquette",
     "bonnet",
@@ -171,18 +153,15 @@ export async function generateAILooks(
   const baseItemsList = baseItems
     .map((i) => `${i.name} (Catégorie: ${i.category})`)
     .join(" ET ");
-
   const obligationText =
     baseItems.length > 0
       ? `Le client veut OBLIGATOIREMENT porter ces pièces ensemble aujourd'hui : \n${baseItemsList}`
       : `Le client te laisse TOTALEMENT CARTE BLANCHE pour choisir la meilleure tenue dans le dressing.`;
-
   const ruleTwo =
     baseItems.length > 0
       ? `2. Chaque tenue doit INCLURE TOUTES les pièces de base demandées (ajoute leurs IDs dans "itemIds").`
       : `2. Tu as le choix total des pièces. Assure-toi de sélectionner une tenue hautement stylée et adaptée au contexte.`;
 
-  // 👇 CORRECTION : Le prompt est désormais universel pour le shopping
   const prompt = `Tu es un styliste personnel de haut niveau.
   ${weatherContext}
   ${eventContext} 
@@ -209,7 +188,7 @@ export async function generateAILooks(
      - Pas de deuxième pièce d'extérieur (manteau, veste...) si déjà présente.
   4. COHÉRENCE VISUELLE ABSOLUE : Dans ta "description", parle des vêtements de manière élégante et naturelle. N'ÉCRIS JAMAIS les IDs.
   5. PENSE "TENUE RÉELLE" ET GESTION DES MANQUES : Assure-toi d'inclure un Haut, un Bas, et des Chaussures. Si le catalogue ne contient pas une catégorie essentielle (ex: aucune chaussure), fais de ton mieux avec ce qui existe, mais tu DOIS recommander l'achat de cette pièce manquante dans tes suggestions.
-  6. CONSEIL SHOPPING : Pour chaque tenue, propose 1 à 2 suggestions d'achats (vêtements, chaussures ou accessoires) qui viendraient sublimer ou compléter le look. Base-toi strictement sur les préférences de style du profil utilisateur pour suggérer des pièces et des marques pertinentes.
+  6. CONSEIL SHOPPING : Pour chaque tenue, propose 1 à 2 suggestions d'achats (vêtements, chaussures ou accessoires) qui viendraient sublimer ou compléter le look.
   
   Tu dois répondre UNIQUEMENT au format JSON strict. Ton résultat doit être un tableau contenant EXACTEMENT 3 objets :
   [
@@ -219,8 +198,8 @@ export async function generateAILooks(
       "itemIds": ["id_base_1", "id_base_2", "id_complement_1", "id_complement_2"],
       "shoppingSuggestions": [
         {
-          "itemToBuy": "Nom de la pièce (ex: Surchemise en flanelle, Bague en argent)",
-          "reason": "Explication de la valeur stylistique ajoutée au look...",
+          "itemToBuy": "Nom de la pièce",
+          "reason": "Explication...",
           "brands": ["Marque 1", "Marque 2"]
         }
       ]
@@ -242,16 +221,11 @@ export async function generateAILooks(
     );
 
     data = await response.json();
-
     if (response.ok) break;
 
     if (response.status === 503 && attempt < maxRetries) {
-      console.log(
-        `Serveur Google surchargé. Nouvelle tentative dans 2 secondes...`,
-      );
       await new Promise((resolve) => setTimeout(resolve, 2000));
     } else {
-      console.error("Erreur API Google:", data);
       throw new Error(
         data.error?.message || "Erreur lors de la communication avec Gemini",
       );
@@ -261,10 +235,8 @@ export async function generateAILooks(
   const text = data.candidates[0].content.parts[0].text;
   const startIndex = text.indexOf("[");
   const endIndex = text.lastIndexOf("]");
-
-  if (startIndex === -1 || endIndex === -1) {
+  if (startIndex === -1 || endIndex === -1)
     throw new Error("L'IA n'a pas respecté la structure des données demandée.");
-  }
 
   const cleanJson = text.substring(startIndex, endIndex + 1);
   return JSON.parse(cleanJson);
@@ -272,38 +244,24 @@ export async function generateAILooks(
 
 // 4. Action pour sauvegarder le look choisi
 export async function saveGeneratedOutfit(name, itemIds) {
-  // --- NOUVEAU : On identifie ton vrai compte Clerk ---
   const { userId } = await auth();
   if (!userId) throw new Error("Non autorisé");
 
   const clerkUser = await currentUser();
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
-
-  const dbUser = await prisma.user.findUnique({
-    where: { email: userEmail },
-  });
-
+  const dbUser = await prisma.user.findUnique({ where: { email: userEmail } });
   if (!dbUser) throw new Error("Utilisateur non trouvé en base");
-  // -----------------------------------------------------
 
-  // 1. FILTRE ANTI-HALLUCINATION : On récupère uniquement les vrais articles qui existent en base
   const existingItems = await prisma.item.findMany({
-    where: {
-      id: { in: itemIds },
-    },
+    where: { id: { in: itemIds } },
   });
-
-  // On crée le tableau de connexion avec uniquement les vrais IDs trouvés
   const validItemsToConnect = existingItems.map((item) => ({ id: item.id }));
 
-  // 2. SAUVEGARDE SÉCURISÉE
   await prisma.outfit.create({
     data: {
       styleNotes: name,
-      userId: dbUser.id, // On utilise l'ID de TON compte ici !
-      items: {
-        connect: validItemsToConnect,
-      },
+      userId: dbUser.id,
+      items: { connect: validItemsToConnect },
     },
   });
 
@@ -311,12 +269,10 @@ export async function saveGeneratedOutfit(name, itemIds) {
   redirect("/tenues");
 }
 
-// 5. Action pour analyser une image avec Gemini Vision
+// 5. Action pour analyser une image
 export async function analyzeImageWithAI(imageUrl) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("La clé API Gemini est absente du fichier .env");
-  }
+  if (!apiKey) throw new Error("La clé API Gemini est absente du fichier .env");
 
   try {
     const imageReq = await fetch(imageUrl);
@@ -325,33 +281,24 @@ export async function analyzeImageWithAI(imageUrl) {
     const mimeType = imageReq.headers.get("content-type") || "image/jpeg";
 
     const prompt = `Tu es un expert en mode masculine. Analyse ce vêtement.
-    Déduis son nom descriptif (ex: "Chemise en lin bleue", "Jean brut", "Baskets blanches") et sa catégorie.
-    
+    Déduis son nom descriptif et sa catégorie.
     Tu dois répondre UNIQUEMENT au format JSON strict avec cette structure exacte :
     {
       "name": "Nom descriptif trouvé",
       "category": "Choisis STRICTEMENT parmi : Haut, Bas, Chaussures, Maroquinerie, Accessoire"
     }`;
 
-    // LA CORRECTION EST ICI : on utilise gemini-3.6-flash
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [
             {
               parts: [
                 { text: prompt },
-                {
-                  inlineData: {
-                    mimeType: mimeType,
-                    data: base64Image,
-                  },
-                },
+                { inlineData: { mimeType: mimeType, data: base64Image } },
               ],
             },
           ],
@@ -360,11 +307,7 @@ export async function analyzeImageWithAI(imageUrl) {
     );
 
     const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Erreur API Vision:", data);
-      throw new Error(data.error?.message || "Erreur Vision");
-    }
+    if (!response.ok) throw new Error(data.error?.message || "Erreur Vision");
 
     const text = data.candidates[0].content.parts[0].text;
     const cleanJson = text
@@ -378,32 +321,25 @@ export async function analyzeImageWithAI(imageUrl) {
   }
 }
 
-// 6. Action pour supprimer une tenue sauvegardée
+// 6. Action pour supprimer une tenue
 export async function deleteOutfit(formData) {
   const id = formData.get("id");
-
-  await prisma.outfit.delete({
-    where: { id: id },
-  });
-
+  await prisma.outfit.delete({ where: { id: id } });
   revalidatePath("/tenues");
 }
 
-// 7. Action pour mettre à jour le profil utilisateur (Liée à Clerk !)
+// 7. Action pour mettre à jour le profil
 export async function updateProfile(formData) {
   const gender = formData.get("gender");
   const age = parseInt(formData.get("age"), 10);
   const stylePreferences = formData.get("stylePreferences");
 
-  // 1. On récupère le VRAI utilisateur sécurisé via Clerk
   const clerkUser = await currentUser();
   if (!clerkUser) throw new Error("Vous devez être connecté.");
 
-  // On extrait son email
   const userEmail = clerkUser.emailAddresses[0].emailAddress;
   const userName = clerkUser.firstName || "Utilisateur";
 
-  // 2. On met à jour SA ligne dans la base de données
   await prisma.user.upsert({
     where: { email: userEmail },
     update: {
@@ -420,11 +356,10 @@ export async function updateProfile(formData) {
     },
   });
 
-  // 3. LA REDIRECTION : on l'envoie dans son dressing !
   redirect("/dressing");
 }
 
-// Fonction météo intelligente (Aujourd'hui = Temps réel / Demain = Prévision Max)
+// Fonction météo intelligente
 async function getLocalWeather(lat, lon, isTomorrow) {
   try {
     if (isTomorrow) {
@@ -433,7 +368,7 @@ async function getLocalWeather(lat, lon, isTomorrow) {
         { cache: "no-store" },
       );
       const data = await response.json();
-      return { temp: data.daily.temperature_2m_max[1], isTomorrow: true }; // [1] = Demain
+      return { temp: data.daily.temperature_2m_max[1], isTomorrow: true };
     } else {
       const response = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`,
@@ -448,8 +383,24 @@ async function getLocalWeather(lat, lon, isTomorrow) {
   }
 }
 
-// 1. Mise à jour de la fonction de génération pour récupérer les prévisions journalières
-export async function generateTravelSuitcase(destination, days) {
+// Fonction utilitaire pour traduire les codes météo WMO en icônes et descriptions
+function getWeatherCondition(code) {
+  if (code === 0) return { label: "Ciel dégagé", icon: "☀️" };
+  if (code === 1) return { label: "Ensoleillé", icon: "🌤️" };
+  if (code === 2) return { label: "Éclaircies", icon: "⛅" };
+  if (code === 3) return { label: "Couvert", icon: "☁️" };
+  if ([45, 48].includes(code)) return { label: "Brouillard", icon: "🌫️" };
+  if ([51, 53, 55].includes(code)) return { label: "Bruine", icon: "🌦️" };
+  if ([61, 63, 65].includes(code)) return { label: "Pluie", icon: "🌧️" };
+  if ([71, 73, 75, 77].includes(code)) return { label: "Neige", icon: "❄️" };
+  if ([80, 81, 82].includes(code)) return { label: "Averses", icon: "🌧️" };
+  if ([85, 86].includes(code)) return { label: "Averses de neige", icon: "🌨️" };
+  if ([95, 96, 99].includes(code)) return { label: "Orage", icon: "⛈️" };
+  return { label: "Variable", icon: "🌤️" };
+}
+
+// 8. Générer une valise de voyage
+export async function generateTravelSuitcase(destination, days, departureDate) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("La clé API Gemini est absente.");
 
@@ -467,39 +418,60 @@ export async function generateTravelSuitcase(destination, days) {
   );
   const geoData = await geoRes.json();
 
-  let weatherContext = "Météo locale inconnue.";
-  let dailyForecasts = [];
+  let dailyForecasts = null;
   let cityName = destination;
 
   if (geoData.results && geoData.results.length > 0) {
     const { latitude, longitude, name, country } = geoData.results[0];
     cityName = `${name}, ${country}`;
 
-    // On demande un nombre de jours adapté (maximum 10 jours pour Open-Meteo)
-    const forecastDays = Math.min(Math.max(Number(days), 1), 10);
-    const weatherRes = await fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Paris&forecast_days=${forecastDays}`,
+    const today = new Date();
+    const depDate = departureDate ? new Date(departureDate) : today;
+    const diffDaysToDeparture = Math.ceil(
+      (depDate - today) / (1000 * 60 * 60 * 24),
     );
-    const weatherData = await weatherRes.json();
 
-    if (weatherData.daily) {
-      const { time, temperature_2m_max, temperature_2m_min } =
-        weatherData.daily;
-      dailyForecasts = time.map((dateStr, idx) => ({
-        date: new Date(dateStr).toLocaleDateString("fr-FR", {
-          weekday: "short",
-          day: "numeric",
-          month: "short",
-        }),
-        max: Math.round(temperature_2m_max[idx]),
-        min: Math.round(temperature_2m_min[idx]),
-      }));
+    // Météo sur 14 jours maximum
+    if (diffDaysToDeparture >= 0 && diffDaysToDeparture <= 14) {
+      const startDate = depDate.toISOString().split("T")[0];
+      const endDate = new Date(
+        depDate.getTime() + (Math.min(days, 14) - 1) * 24 * 60 * 60 * 1000,
+      )
+        .toISOString()
+        .split("T")[0];
 
-      const avgMax = Math.round(
-        temperature_2m_max.reduce((a, b) => a + b, 0) /
-          temperature_2m_max.length,
+      const weatherRes = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=Europe/Paris&start_date=${startDate}&end_date=${endDate}`,
       );
-      weatherContext = `Climat à ${cityName} : moyenne de ${avgMax}°C sur la période.`;
+      const weatherData = await weatherRes.json();
+
+      if (weatherData.daily) {
+        const {
+          time,
+          temperature_2m_max,
+          temperature_2m_min,
+          weather_code,
+          precipitation_probability_max,
+        } = weatherData.daily;
+        dailyForecasts = time.map((dateStr, idx) => {
+          const code = weather_code ? weather_code[idx] : 0;
+          const condition = getWeatherCondition(code);
+          return {
+            date: new Date(dateStr).toLocaleDateString("fr-FR", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            }),
+            max: Math.round(temperature_2m_max[idx]),
+            min: Math.round(temperature_2m_min[idx]),
+            condition: condition.label,
+            icon: condition.icon,
+            rainProb: precipitation_probability_max
+              ? precipitation_probability_max[idx]
+              : 0,
+          };
+        });
+      }
     }
   }
 
@@ -516,17 +488,17 @@ export async function generateTravelSuitcase(destination, days) {
 
   const prompt = `Tu es un styliste expert en création de garde-robe capsule minimaliste.
   Ton client part pour ${days} jours à ${cityName}.
-  CONTEXTE CLIMATIQUE : ${weatherContext}
+  DATE DE DÉPART PRÉVUE : ${departureDate || "Bientôt"} (Prends en compte la saisonnalité).
   
   DRESSING DISPONIBLE :
   ${JSON.stringify(allItems.map((i) => ({ id: i.id, name: i.name, category: i.category })))}
   
-  Sélectionne une garde-robe intelligente et minimaliste adaptée à cette durée et cette météo.
+  Sélectionne une garde-robe intelligente et minimaliste adaptée à cette période.
   
-  Tu DOIS répondre UNIQUEMENT par un objet JSON valide, sans texte autour, avec cette structure exacte :
+  Tu DOIS répondre UNIQUEMENT par un objet JSON valide, sans texte autour, avec cette structure :
   {
-    "title": "Nom accrocheur (ex: Valise pour Madrid)",
-    "description": "Courte explication stylistique et météorologique de tes choix.",
+    "title": "Nom accrocheur",
+    "description": "Courte explication stylistique prenant en compte la saison du départ.",
     "suitcaseItemIds": ["id1", "id2", "id3", "id4"]
   }`;
 
@@ -543,12 +515,14 @@ export async function generateTravelSuitcase(destination, days) {
   );
 
   const data = await res.json();
-  if (
-    !data.candidates ||
-    data.candidates.length === 0 ||
-    !data.candidates[0].content
-  ) {
-    throw new Error("L'IA n'a pas pu générer la valise.");
+
+  // 👇 SÉCURITÉ ANTI-CRASH GEMINI
+  if (!res.ok || !data.candidates || data.candidates.length === 0) {
+    console.error("Détail de l'erreur Gemini :", JSON.stringify(data, null, 2));
+    throw new Error(
+      data.error?.message ||
+        "L'IA est temporairement indisponible. Veuillez réessayer.",
+    );
   }
 
   const text = data.candidates[0].content.parts[0].text;
@@ -558,28 +532,42 @@ export async function generateTravelSuitcase(destination, days) {
     .trim();
   const result = JSON.parse(cleanJsonText);
 
-  // On injecte les prévisions météo pour l'affichage côté client
-  return { ...result, cityName, dailyForecasts };
+  return { ...result, cityName, dailyForecasts, departureDate };
 }
 
-// 2. Action pour enregistrer la valise (similaire aux tenues)
-export async function saveTravelSuitcase(title, itemIds) {
-  const { currentUser } = await import("@clerk/nextjs/server");
+// 9. Sauvegarder la valise dans le Lookbook avec les infos météo détaillées (JSON)
+export async function saveTravelSuitcase(
+  title,
+  itemIds,
+  cityName,
+  departureDate,
+  dailyForecasts,
+) {
   const clerkUser = await currentUser();
-  const prisma = (await import("@/lib/prisma")).default;
+  if (!clerkUser) throw new Error("Non autorisé");
 
+  const userEmail = clerkUser.emailAddresses[0].emailAddress;
   const user = await prisma.user.findUnique({
-    where: { email: clerkUser.emailAddresses[0].emailAddress },
+    where: { email: userEmail },
   });
+
   if (!user) throw new Error("Utilisateur non trouvé");
 
+  // On sauvegarde dans la base de données avec le nouveau champ JSON
   await prisma.outfit.create({
     data: {
       userId: user.id,
       styleNotes: `[VALISE] ${title}`,
+      travelData: {
+        cityName: cityName,
+        departureDate: departureDate,
+        dailyForecasts: dailyForecasts,
+      },
       items: {
         connect: itemIds.map((id) => ({ id })),
       },
     },
   });
+
+  revalidatePath("/tenues");
 }
